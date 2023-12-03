@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from llama.tokenizer import Tokenizer
 from llama.model import ModelArgs, Llama
+from torch.cuda.amp import autocast, GradScaler
 
 IGNORE_INDEX = -100
 
@@ -137,7 +138,8 @@ def train():
 
     for name, param in model.named_parameters():
         # print(name, param.requires_grad)
-        if "lora_" not in name:
+        # freeze model parameters except lora_a and lora_b 
+        if "lora_" not in name: 
             param.requires_grad = False
     
     total_params = sum(p.numel() for p in model.parameters())
@@ -153,24 +155,33 @@ def train():
     optimizer.zero_grad()
 
     model.train()
+
+    # Gradient scaling to prevent underflow
+    scaler = GradScaler()
+
     for epoch in range(10):
         for i, batch in enumerate(dataloader):
             input_ids = batch['input_ids'].to("cuda")
             labels = batch['labels'].to("cuda")
 
-            logits = model(input_ids)
+            # Runs forward pass with autocasting
+            with autocast(dtype=torch.float16):
+                logits = model(input_ids)
 
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            shift_logits = shift_logits.view(-1, 32000)
-            shift_labels = shift_labels.view(-1)
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                shift_logits = shift_logits.view(-1, 32000)
+                shift_labels = shift_labels.view(-1)
 
-            loss = criterion(shift_logits, shift_labels) / accumulation_steps
-            loss.backward()
+                loss = criterion(shift_logits, shift_labels) / accumulation_steps
+            
+            # Accumulate scaled gradients
+            scaler.scale(loss).backward()
 
-            # simulate a larger batch size (to accumulation_steps)
+            # Simulate a larger batch size (to accumulation_steps)
             if (i + 1) % accumulation_steps == 0 or (i + 1) == len(dataloader):
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 optimizer.zero_grad()
 
             print(f"epoch: {epoch}, loss: ", loss.item() * accumulation_steps) # scale loss back for reporting
