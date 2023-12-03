@@ -148,9 +148,13 @@ def train():
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
     criterion = torch.nn.CrossEntropyLoss(ignore_index=-100)
 
+    # number of steps to accumulate gradients
+    accumulation_steps = 8
+    optimizer.zero_grad()
+
     model.train()
     for epoch in range(10):
-        for batch in dataloader:
+        for i, batch in enumerate(dataloader):
             input_ids = batch['input_ids'].to("cuda")
             labels = batch['labels'].to("cuda")
 
@@ -161,12 +165,15 @@ def train():
             shift_logits = shift_logits.view(-1, 32000)
             shift_labels = shift_labels.view(-1)
 
-            loss = criterion(shift_logits, shift_labels)
+            loss = criterion(shift_logits, shift_labels) / accumulation_steps
             loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
 
-            print(f"epoch: {epoch}, loss: ", loss.item())
+            # simulate a larger batch size (to accumulation_steps)
+            if (i + 1) % accumulation_steps == 0 or (i + 1) == len(dataloader):
+                optimizer.step()
+                optimizer.zero_grad()
+
+            print(f"epoch: {epoch}, loss: ", loss.item() * accumulation_steps) # scale loss back for reporting
 
 
 if __name__ == "__main__":
