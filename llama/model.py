@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from llama.generation import Generation
+from llama.lora import Linear as LoRALinear
 
 
 @dataclass
@@ -191,9 +192,12 @@ class Attention(nn.Module):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
-        self.wq = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False)
+        # self.wq = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False)
+        # self.wv = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
+        self.wq = LoRALinear(args.dim, args.n_heads * self.head_dim, merge_weights=False, bias=False)
+        self.wv = LoRALinear(args.dim, self.n_kv_heads * self.head_dim, merge_weights=False, bias=False)
+        
         self.wk = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
-        self.wv = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
         self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
 
     def forward(

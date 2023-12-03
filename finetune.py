@@ -135,15 +135,21 @@ def train():
         shuffle=True,
     )
 
+    for name, param in model.named_parameters():
+        # print(name, param.requires_grad)
+        if "lora_" not in name:
+            param.requires_grad = False
+    
+    total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Trainable params: {trainable_params}")
+    print(f"Trainable params: {trainable_params}, percentage: {trainable_params / total_params * 100:.4f}%")
 
     # prepare optimizer and loss function
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
     criterion = torch.nn.CrossEntropyLoss(ignore_index=-100)
 
     model.train()
-    for epoch in range(5):
+    for epoch in range(10):
         for batch in dataloader:
             input_ids = batch['input_ids'].to("cuda")
             labels = batch['labels'].to("cuda")
