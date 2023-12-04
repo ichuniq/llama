@@ -11,6 +11,7 @@ from torch import nn
 
 from llama.generation import Generation
 from llama.lora import Linear as LoRALinear
+from torch.utils.checkpoint import checkpoint
 
 
 @dataclass
@@ -337,10 +338,26 @@ class TransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
-        h = x + self.attention.forward(
-            self.attention_norm(x), freqs_cis, mask
-        )
-        out = h + self.feed_forward.forward(self.ffn_norm(h))
+        # h = x + self.attention.forward(
+        #     self.attention_norm(x), freqs_cis, mask
+        # )
+        # out = h + self.feed_forward.forward(self.ffn_norm(h))
+
+        # Define helper functions for checkpointing
+        def custom_attention(x, freqs_cis, mask):
+            return x + self.attention(self.attention_norm(x), freqs_cis, mask)
+
+        def custom_feed_forward(h):
+            return h + self.feed_forward(self.ffn_norm(h))
+
+        # Apply checkpointing (only effective for training)
+        if self.training:
+            x = checkpoint(custom_attention, x, freqs_cis, mask, use_reentrant=False)
+            out = checkpoint(custom_feed_forward, x, use_reentrant=False)
+        else:
+            x = custom_attention(x, freqs_cis, mask)
+            out = custom_feed_forward(x)
+
         return out
 
 
