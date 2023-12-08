@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+import os
 
 import torch
 from torch.utils.data import Dataset
@@ -113,12 +114,12 @@ def train():
 
     model_path = "/home1/ichuncha/llama/llama2-7b/consolidated.00.pth"
     tokenizer_path = "/home1/ichuncha/llama/llama2-7b/tokenizer.model"
-    data_path = "/home1/ichuncha/llama/alpaca_data_dummy.json"
+    data_path = "/home1/ichuncha/llama/alpaca_data_200.json"
 
     # load model
     checkpoint = torch.load(model_path, map_location="cpu")
     model_args = ModelArgs()
-    model_args.n_layers = 1  # for debugging purposes we only use 1 layer
+    model_args.n_layers = 32  # for debugging purposes we only use 1 layer
     # torch.set_default_tensor_type(torch.cuda.HalfTensor) # for training we use fp32 weights
     model = Llama(model_args)
     model.load_state_dict(checkpoint, strict=False)
@@ -147,7 +148,7 @@ def train():
     print(f"Trainable params: {trainable_params}, percentage: {trainable_params / total_params * 100:.4f}%")
 
     # prepare optimizer and loss function
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     criterion = torch.nn.CrossEntropyLoss(ignore_index=-100)
 
     # number of steps to accumulate gradients
@@ -184,7 +185,28 @@ def train():
                 scaler.update()
                 optimizer.zero_grad()
 
-            print(f"epoch: {epoch}, loss: ", loss.item() * accumulation_steps) # scale loss back for reporting
+            if i % 50 == 0:
+                # scale loss back for reporting
+                print(f"epoch: {epoch:<5} step: {i:<5} loss: {loss.item() * accumulation_steps}")
+    
+    
+    weights_save_path = "./weights/"
+    os.makedirs(weights_save_path, exist_ok=True)
+
+    # Save model parameters
+    params_file_path = os.path.join(weights_save_path, "params.json")
+
+    desired_keys = ["dim", "multiple_of", "n_heads", "n_layers",]
+    model_params = {key: getattr(model.params, key, None) for key in desired_keys}
+    with open(params_file_path, 'w') as params_file:
+        json.dump(model_params, params_file)
+
+    # Save model state
+    model_state_path = os.path.join(weights_save_path, "lora_weights_32.pth")
+    # Only store lora layer states as we freeze the rest during training
+    lora_state_dict = {k: model.state_dict()[k] for k in model.state_dict() if 'lora_' in k}
+    torch.save(lora_state_dict, model_state_path)
+    print(f"Fine-tuned lora weights saved to {model_state_path}")
 
 
 if __name__ == "__main__":
